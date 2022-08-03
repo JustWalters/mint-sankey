@@ -12,6 +12,9 @@ import toml
 
 from transaction import Transaction
 
+# TODO: Get from config file
+CATEGORIES_TO_EXCLUDE = ['Transfer', 'Buy']
+
 
 def parse_csv(fname: str) -> List[Transaction]:
     """Parse a CSV file into a list of transactions
@@ -36,6 +39,17 @@ def parse_csv(fname: str) -> List[Transaction]:
 
     return transactions
 
+def add_entry(f: typing.IO, from_category: str, to_category: str, amount: int):
+    """Add an entry to the SankeyMatic file
+
+    Args:
+        from_category: category to spend from
+        to_category: category to spend to
+        amount: amount transferred
+        f: output file
+    """
+    if amount > 0 and to_category not in CATEGORIES_TO_EXCLUDE:
+        f.write(f'{from_category} [{amount}] {to_category}\n')
 
 def add_paystub(f: typing.IO,
                 earnings: float,
@@ -59,18 +73,19 @@ def add_paystub(f: typing.IO,
             total take home income over the plotting period
     """
     take_home = earnings * scale
-    if use_percent:
-        f.write(f'Spending [{int(100)}] Wages\n')
-    else:
-        f.write(f'Spending [{int(take_home)}] Wages\n')
+    # TODO: Skip only if Spending === Wages
+    # if use_percent:
+    #     add_entry(f, 'Spending', 'Wages', 100)
+    # else:
+    #     add_entry(f, 'Spending', 'Wages', int(take_home))
 
     sorted_pretax = sorted(pretax_vals.items(), key=lambda kv: kv[1])
     sorted_pretax.reverse()
     for name, value in sorted_pretax:
         if use_percent:
-            f.write(f'Wages [{int(100 * value / earnings)}] {name}\n')
+            add_entry(f, 'Wages', name, int(100 * value / earnings))
         else:
-            f.write(f'Wages [{int(value * scale)}] {name}\n')
+            add_entry(f, 'Wages', name, int(value * scale))
 
         take_home -= value * scale
 
@@ -78,7 +93,7 @@ def add_paystub(f: typing.IO,
         val = int(100 * take_home / earnings / scale)
     else:
         val = int(take_home)
-    f.write(f'Wages [{val}] Take Home\n')
+    add_entry(f, 'Wages', 'Take Home', val)
 
     return int(take_home)
 
@@ -199,9 +214,9 @@ def add_work_transactions(f: typing.IO, transactions: List[Transaction],
 
     work_total = sum(summed_categories.values())
     if config['transactions']['use_percentages']:
-        f.write(f'Spending [100] Work\n')
+        add_entry(f, 'Spending', 'Work', 100)
     else:
-        f.write(f'Spending [{work_total}] Work\n')
+        add_entry(f, 'Spending', 'Work', work_total)
 
 
 def add_transactions(f: typing.IO, transactions: List[Transaction],
@@ -237,16 +252,24 @@ def add_transactions(f: typing.IO, transactions: List[Transaction],
     sorted_cat.reverse()
     for name, value in sorted_cat:
         if config['transactions']['use_percentages']:
-            f.write(f'Take Home [{int(100 * value / take_home)}] {name}\n')
+            add_entry(f, 'Take Home', name, int(100 * value / take_home))
         else:
-            f.write(f'Take Home [{value}] {name}\n')
+            add_entry(f, 'Take Home', name, value)
         expenditure += value
 
-    if config['transactions']['use_percentages']:
-        savings = int(100 * (take_home - expenditure) / take_home)
+    if take_home - expenditure > 0:
+        if config['transactions']['use_percentages']:
+            savings = int(100 * (take_home - expenditure) / take_home)
+        else:
+            savings = take_home - expenditure
+        add_entry(f, 'Take Home', 'Savings', savings)
+
     else:
-        savings = take_home - expenditure
-    f.write(f'Take Home [{savings}] Savings\n')
+        if config['transactions']['use_percentages']:
+            spending = int(100 * (expenditure - take_home) / take_home)
+        else:
+            spending = expenditure - take_home
+        add_entry(f, 'Savings', 'Take Home', spending)
 
 
 def main(*, config_file: str = None):
